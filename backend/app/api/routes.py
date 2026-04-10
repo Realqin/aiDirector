@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
-from app.models import LLMModel, PromptTemplate, SceneRun, StoryboardScene
+from app.models import LLMModel, PromptTemplate, SceneRun, StoryboardScene, Theme
 from app.schemas.llm import (
     LLMModelCreate,
     LLMModelEnabledUpdate,
@@ -16,7 +16,25 @@ from app.schemas.llm import (
 from app.services.llm_remote import fetch_remote_model_ids, test_connection
 from app.schemas.prompt import PromptCreate, PromptEnabledUpdate, PromptRead, PromptUpdate
 from app.schemas.storyboard import SceneCreate, SceneRead, SceneRunRequest, SceneRunResponse
+from app.schemas.theme import (
+    ThemeAiAssistRequest,
+    ThemeAiAssistResponse,
+    ThemeAiFieldRequest,
+    ThemeAiFieldResponse,
+    ThemeCreate,
+    ThemeRandomFill,
+    ThemeRandomSnippet,
+    ThemeRead,
+    ThemeUpdate,
+)
 from app.services.storyboard import run_scene
+from app.services.theme_ai import (
+    random_description,
+    random_historical_background,
+    random_theme_fill,
+    theme_ai_assist,
+    theme_ai_field,
+)
 
 router = APIRouter()
 
@@ -148,9 +166,126 @@ def delete_prompt(prompt_id: int, db: Session = Depends(get_db)):
     return {'ok': True}
 
 
+@router.get('/themes', response_model=list[ThemeRead])
+def list_themes(db: Session = Depends(get_db)):
+    return db.query(Theme).order_by(Theme.id.desc()).all()
+
+
+@router.post('/themes', response_model=ThemeRead)
+def create_theme(payload: ThemeCreate, db: Session = Depends(get_db)):
+    exists = db.query(Theme).filter(Theme.name == payload.name).first()
+    if exists:
+        raise HTTPException(status_code=400, detail='主题名称已存在')
+    row = Theme(**payload.model_dump())
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+# 静态子路径须写在 /themes/{theme_id} 之前，避免部分路由实现把片段当成 id 匹配。
+@router.get('/themes/random-fill', response_model=ThemeRandomFill)
+def theme_random_fill():
+    return ThemeRandomFill(**random_theme_fill())
+
+
+@router.get('/themes/random-historical-background', response_model=ThemeRandomSnippet)
+def theme_random_historical_background():
+    return ThemeRandomSnippet(value=random_historical_background())
+
+
+@router.get('/themes/random-description', response_model=ThemeRandomSnippet)
+def theme_random_description():
+    return ThemeRandomSnippet(value=random_description())
+
+
+@router.post('/themes/ai-field', response_model=ThemeAiFieldResponse)
+def theme_ai_field_route(payload: ThemeAiFieldRequest, db: Session = Depends(get_db)):
+    value, err = theme_ai_field(
+        db,
+        payload.field,
+        model_id=payload.model_id,
+        prompt_template_id=payload.prompt_template_id,
+        theme_name=payload.theme_name,
+        historical_background=payload.historical_background,
+        description=payload.description,
+        extra_hint=payload.extra_hint,
+    )
+    if err:
+        raise HTTPException(status_code=400, detail=err) from None
+    return ThemeAiFieldResponse(value=value)
+
+
+@router.post('/themes/ai-assist', response_model=ThemeAiAssistResponse)
+def theme_ai_assist_route(payload: ThemeAiAssistRequest, db: Session = Depends(get_db)):
+    data, err = theme_ai_assist(
+        db,
+        payload.hint,
+        model_id=payload.model_id,
+        prompt_template_id=payload.prompt_template_id,
+    )
+    if err:
+        raise HTTPException(status_code=400, detail=err) from None
+    return ThemeAiAssistResponse(**data)
+
+
+@router.put('/themes/{theme_id}', response_model=ThemeRead)
+def update_theme(theme_id: int, payload: ThemeUpdate, db: Session = Depends(get_db)):
+    row = db.query(Theme).filter(Theme.id == theme_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail='主题不存在')
+    exists = db.query(Theme).filter(Theme.name == payload.name, Theme.id != theme_id).first()
+    if exists:
+        raise HTTPException(status_code=400, detail='主题名称已存在')
+    row.name = payload.name
+    row.historical_background = payload.historical_background
+    row.description = payload.description
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.delete('/themes/{theme_id}')
+def delete_theme(theme_id: int, db: Session = Depends(get_db)):
+    row = db.query(Theme).filter(Theme.id == theme_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail='主题不存在')
+    db.delete(row)
+    db.commit()
+    return {'ok': True}
+
+
+def _validate_theme_id(db: Session, theme_id: int | None) -> None:
+    if theme_id is None:
+        return
+    t = db.query(Theme).filter(Theme.id == theme_id).first()
+    if not t:
+        raise HTTPException(status_code=400, detail='主题不存在')
+
+
+def _scene_to_read(scene: StoryboardScene) -> SceneRead:
+    return SceneRead(
+        id=scene.id,
+        name=scene.name,
+        description=scene.description or '',
+        theme_id=scene.theme_id,
+        theme_name=scene.theme.name if scene.theme else '',
+        progress=scene.progress,
+        status=scene.status,
+        created_at=scene.created_at,
+    )
+
+
 @router.get('/storyboards', response_model=list[SceneRead])
 def list_storyboards(db: Session = Depends(get_db)):
-    return db.query(StoryboardScene).order_by(StoryboardScene.id.desc()).all()
+    rows = (
+        db.query(StoryboardScene)
+        .options(joinedload(StoryboardScene.theme))
+        .order_by(StoryboardScene.id.desc())
+        .all()
+    )
+    return [_scene_to_read(s) for s in rows]
 
 
 @router.post('/storyboards', response_model=SceneRead)
@@ -158,11 +293,24 @@ def create_storyboard(payload: SceneCreate, db: Session = Depends(get_db)):
     exists = db.query(StoryboardScene).filter(StoryboardScene.name == payload.name).first()
     if exists:
         raise HTTPException(status_code=400, detail='分镜名称已存在')
-    row = StoryboardScene(name=payload.name, description=payload.description, progress=0, status='draft')
+    _validate_theme_id(db, payload.theme_id)
+    row = StoryboardScene(
+        name=payload.name,
+        description=payload.description,
+        theme_id=payload.theme_id,
+        progress=0,
+        status='draft',
+    )
     db.add(row)
     db.commit()
     db.refresh(row)
-    return row
+    scene = (
+        db.query(StoryboardScene)
+        .options(joinedload(StoryboardScene.theme))
+        .filter(StoryboardScene.id == row.id)
+        .first()
+    )
+    return _scene_to_read(scene)
 
 
 @router.put('/storyboards/{scene_id}', response_model=SceneRead)
@@ -177,12 +325,20 @@ def update_storyboard(scene_id: int, payload: SceneCreate, db: Session = Depends
     )
     if exists:
         raise HTTPException(status_code=400, detail='分镜名称已存在')
+    _validate_theme_id(db, payload.theme_id)
     scene.name = payload.name
     scene.description = payload.description
+    scene.theme_id = payload.theme_id
     db.add(scene)
     db.commit()
     db.refresh(scene)
-    return scene
+    scene = (
+        db.query(StoryboardScene)
+        .options(joinedload(StoryboardScene.theme))
+        .filter(StoryboardScene.id == scene_id)
+        .first()
+    )
+    return _scene_to_read(scene)
 
 
 @router.delete('/storyboards/{scene_id}')

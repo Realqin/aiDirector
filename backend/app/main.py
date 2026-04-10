@@ -22,6 +22,7 @@ with SessionLocal() as db:
             "WHERE LOWER(TRIM(api_key)) IN ('replace-me', 'replace_me', 'sk-placeholder', 'your-api-key-here')"
         )
     )
+    db.execute(text('ALTER TABLE storyboard_scenes ADD COLUMN IF NOT EXISTS theme_id INTEGER REFERENCES themes(id)'))
     db.commit()
 
 bootstrap_data()

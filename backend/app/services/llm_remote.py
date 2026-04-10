@@ -68,6 +68,7 @@ def chat_completion_user(
     model_name: str,
     user_content: str,
     *,
+    system_content: str | None = None,
     timeout: int = 120,
     max_tokens: int = 4096,
 ) -> tuple[str | None, str | None]:
@@ -77,9 +78,13 @@ def chat_completion_user(
     if not user_content or not str(user_content).strip():
         return None, '提示内容为空'
     url = chat_completions_url(base_url)
+    messages: list[dict[str, str]] = []
+    if system_content and str(system_content).strip():
+        messages.append({'role': 'system', 'content': str(system_content).strip()})
+    messages.append({'role': 'user', 'content': str(user_content).strip()})
     body = {
         'model': str(model_name).strip(),
-        'messages': [{'role': 'user', 'content': str(user_content).strip()}],
+        'messages': messages,
         'max_tokens': max_tokens,
         'temperature': 0.7,
     }

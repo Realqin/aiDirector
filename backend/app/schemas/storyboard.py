@@ -1,9 +1,12 @@
+from datetime import datetime
+
 from pydantic import BaseModel, field_validator
 
 
 class SceneBase(BaseModel):
     name: str
     description: str = ''
+    theme_id: int | None = None
 
 
 class SceneCreate(SceneBase):
@@ -14,9 +17,10 @@ class SceneRead(SceneBase):
     id: int
     progress: int
     status: str
+    theme_name: str = ''
+    created_at: datetime | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = {'from_attributes': True}
 
 
 class SceneRunRequest(BaseModel):

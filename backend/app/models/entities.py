@@ -33,10 +33,12 @@ class StoryboardScene(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     description: Mapped[str] = mapped_column(Text, default='')
+    theme_id: Mapped[int | None] = mapped_column(ForeignKey('themes.id', ondelete='SET NULL'), nullable=True)
     progress: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(24), default='draft')
     created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
     runs: Mapped[list['SceneRun']] = relationship(back_populates='scene')
+    theme: Mapped['Theme | None'] = relationship(back_populates='storyboard_scenes')
 
 
 class SceneRun(Base):
@@ -50,3 +52,14 @@ class SceneRun(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
 
     scene: Mapped[StoryboardScene] = relationship(back_populates='runs')
+
+
+class Theme(Base):
+    __tablename__ = 'themes'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    historical_background: Mapped[str] = mapped_column(Text, default='')
+    description: Mapped[str] = mapped_column(Text, default='')
+    created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
+    storyboard_scenes: Mapped[list['StoryboardScene']] = relationship(back_populates='theme')

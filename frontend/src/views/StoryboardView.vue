@@ -1,12 +1,23 @@
 <template>
   <el-card>
     <template #header>
-      <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
         <span>分镜列表</span>
         <el-button type="primary" @click="openCreate">新增分镜</el-button>
       </div>
     </template>
-    <el-table :data="rows" style="width:100%">
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+      <el-input
+        v-model="keyword"
+        placeholder="输入分镜名称、主题名称或描述"
+        clearable
+        style="width:320px"
+        @keyup.enter="runSearch"
+      />
+      <el-button type="primary" @click="runSearch">查询</el-button>
+    </div>
+    <el-table :data="filteredRows" style="width:100%">
+      <el-table-column prop="theme_name" label="主题名称" min-width="120" show-overflow-tooltip />
       <el-table-column prop="name" label="分镜名称" />
       <el-table-column prop="created_at" label="创建时间" />
       <el-table-column label="进度">
@@ -29,6 +40,17 @@
 
   <el-dialog v-model="open" :title="isEdit ? '编辑分镜' : '新增分镜'" width="500px">
     <el-form :model="form" label-width="90px">
+      <el-form-item label="主题">
+        <el-select
+          v-model="form.theme_id"
+          clearable
+          filterable
+          placeholder="请选择主题"
+          style="width:100%"
+        >
+          <el-option v-for="t in themeOptions" :key="t.id" :label="t.name" :value="t.id" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="名称"><el-input v-model="form.name" /></el-form-item>
       <el-form-item label="描述"><el-input v-model="form.description" type="textarea" :rows="4" /></el-form-item>
     </el-form>
@@ -41,21 +63,43 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 
 const router = useRouter()
 const rows = ref([])
+const filteredRows = ref([])
+const themeOptions = ref([])
+const keyword = ref('')
 const open = ref(false)
 const isEdit = ref(false)
 const editingId = ref(null)
-const form = reactive({ name: '', description: '' })
+const form = reactive({ theme_id: null, name: '', description: '' })
+
+const normalizedKeyword = computed(() => keyword.value.trim().toLowerCase())
+
+const loadThemes = async () => {
+  const { data } = await http.get('/themes')
+  themeOptions.value = data || []
+}
 
 const load = async () => {
   const { data } = await http.get('/storyboards')
   rows.value = data
+  runSearch()
+}
+
+const runSearch = () => {
+  const key = normalizedKeyword.value
+  filteredRows.value = rows.value.filter((row) => {
+    if (!key) return true
+    const name = String(row.name || '').toLowerCase()
+    const tn = String(row.theme_name || '').toLowerCase()
+    const desc = String(row.description || '').toLowerCase()
+    return name.includes(key) || tn.includes(key) || desc.includes(key)
+  })
 }
 
 const getNodeStats = (sceneId) => {
@@ -87,6 +131,7 @@ const getProgressText = (sceneId) => {
 const openCreate = () => {
   isEdit.value = false
   editingId.value = null
+  form.theme_id = null
   form.name = ''
   form.description = ''
   open.value = true
@@ -102,6 +147,7 @@ const save = async () => {
   open.value = false
   isEdit.value = false
   editingId.value = null
+  form.theme_id = null
   form.name = ''
   form.description = ''
   await load()
@@ -110,6 +156,7 @@ const save = async () => {
 const edit = (row) => {
   isEdit.value = true
   editingId.value = row.id
+  form.theme_id = row.theme_id ?? null
   form.name = row.name
   form.description = row.description || ''
   open.value = true
@@ -134,5 +181,8 @@ const run = (row) => {
   router.push(`/storyboards/${row.id}/run`)
 }
 
-onMounted(load)
+onMounted(async () => {
+  await loadThemes()
+  await load()
+})
 </script>

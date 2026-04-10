@@ -3,6 +3,7 @@
     <el-aside width="180px" style="background: #17233a; color: #fff">
       <div style="padding: 16px; font-size: 18px; font-weight: 700">AI 导演工作台</div>
       <el-menu :default-active="$route.path" router background-color="#17233a" text-color="#fff" active-text-color="#409EFF">
+        <el-menu-item index="/themes">主题</el-menu-item>
         <el-menu-item index="/storyboards">AI 分镜</el-menu-item>
         <el-menu-item index="/llm">LLM 配置</el-menu-item>
         <el-menu-item index="/prompts">提示词模板</el-menu-item>
@@ -38,6 +39,7 @@ import http from '../api/http'
 const route = useRoute()
 
 const title = computed(() => {
+  if (route.path === '/themes') return '主题'
   if (route.path === '/llm') return 'LLM 配置'
   if (route.path === '/prompts') return '提示词模板'
   return 'AI 分镜'

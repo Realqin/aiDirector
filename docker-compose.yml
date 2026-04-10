@@ -24,6 +24,9 @@ services:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/aidirector
       REDIS_URL: redis://redis:6379/0
       API_PREFIX: /api/v1
+    volumes:
+      # 开发时挂载源码，改代码后重启 backend 容器即可，无需每次 docker compose build
+      - ./backend/app:/app/app
     depends_on:
       - db
       - redis
