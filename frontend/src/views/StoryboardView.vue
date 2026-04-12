@@ -139,7 +139,7 @@ const openCreate = () => {
 
 const save = async () => {
   if (isEdit.value && editingId.value) {
-    await http.put(`/storyboards/${editingId.value}`, form)
+    await http.post('/storyboards/update', { storyboard_id: editingId.value, ...form })
   } else {
     await http.post('/storyboards', form)
   }
@@ -169,7 +169,7 @@ const removeRow = async (row) => {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
     })
-    await http.delete(`/storyboards/${row.id}`)
+    await http.post('/storyboards/delete', { storyboard_id: row.id })
     ElMessage.success('删除成功')
     await load()
   } catch {

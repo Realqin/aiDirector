@@ -203,7 +203,7 @@ const doTestConnection = async () => {
 
 const save = async () => {
   if (isEdit.value && editingId.value) {
-    await http.put(`/llm/models/${editingId.value}`, form)
+    await http.post('/llm/models/update', { model_id: editingId.value, ...form })
   } else {
     await http.post('/llm/models', form)
   }
@@ -215,7 +215,7 @@ const save = async () => {
 
 const toggleEnabled = async (row, enabled) => {
   try {
-    await http.patch(`/llm/models/${row.id}/enabled`, { enabled })
+    await http.post('/llm/models/set-enabled', { model_id: row.id, enabled })
     row.enabled = enabled
     ElMessage.success('状态已更新')
   } catch (e) {
@@ -231,7 +231,7 @@ const removeRow = async (row) => {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
     })
-    await http.delete(`/llm/models/${row.id}`)
+    await http.post('/llm/models/delete', { model_id: row.id })
     ElMessage.success('删除成功')
     await load()
   } catch {

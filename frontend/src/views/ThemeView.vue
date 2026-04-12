@@ -12,7 +12,7 @@
     <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <el-input
         v-model="keyword"
-        placeholder="输入名称、时代背景或描述"
+        placeholder="输入名称、时代背景或人物设定"
         clearable
         style="width:300px"
         @keyup.enter="runSearch"
@@ -23,7 +23,7 @@
     <el-table :data="filteredRows">
       <el-table-column prop="name" label="名称" min-width="120" show-overflow-tooltip />
       <el-table-column prop="historical_background" label="时代背景" min-width="180" show-overflow-tooltip />
-      <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
+      <el-table-column prop="description" label="人物设定" min-width="220" show-overflow-tooltip />
       <el-table-column label="操作" width="140" fixed="right">
         <template #default="scope">
           <el-button link type="primary" @click="openEdit(scope.row)">编辑</el-button>
@@ -43,21 +43,21 @@
           <el-input v-model="form.historical_background" placeholder="请输入背景设定" />
           <el-button type="success" :loading="loadingRandomBg" @click="fillRandomBackground">
             <el-icon class="theme-btn-icon"><Refresh /></el-icon>
-            随机生成
+            AI 生成
           </el-button>
         </div>
       </el-form-item>
-      <el-form-item label="背景描述">
+      <el-form-item label="人物设定">
         <div class="theme-field-row theme-field-row--top">
           <el-input
             v-model="form.description"
             type="textarea"
             :rows="5"
-            placeholder="请输入描述内容"
+            placeholder="主要角色、关系、性格、造型或视觉气质等（与「背景设定」区分）"
           />
           <el-button type="success" class="theme-random-side" :loading="loadingRandomDesc" @click="fillRandomDescription">
             <el-icon class="theme-btn-icon"><Refresh /></el-icon>
-            随机生成
+            AI 生成
           </el-button>
         </div>
       </el-form-item>
@@ -90,7 +90,7 @@
             v-model="configDraft[row.key].modelId"
             clearable
             filterable
-            placeholder="不选则用已启用的模型"
+            placeholder="不选则使用首个已启用模型"
             style="width:100%"
           >
             <el-option v-for="m in llmOptions" :key="m.id" :label="m.name" :value="m.id" />
@@ -103,7 +103,7 @@
             v-model="configDraft[row.key].promptId"
             clearable
             filterable
-            placeholder="不选则用内置默认"
+            placeholder="必选：提示词管理中的模板"
             style="width:100%"
           >
             <el-option v-for="p in promptOptions" :key="p.id" :label="p.name" :value="p.id" />
@@ -111,7 +111,10 @@
         </template>
       </el-table-column>
     </el-table>
-    <p class="theme-config-hint">分别为「背景」「描述」随机生成与「提交」整表 AI 辅助指定模型与提示词模板；提示词内容作为系统指令叠加在默认任务说明上。</p>
+    <p class="theme-config-hint">
+      各槽位必须选择「提示词」模板后才会调用大模型；模型不选则使用首个已启用的 LLM 配置。不再提供无模型的本地随机文案。
+      新库一般会预置「主题-AI-时代背景」「主题-AI-画面描述」「主题-AI-整表辅助」等模板，可分别绑定到背景 / 人物设定 / 提交槽位（模板名称以「提示词管理」为准）。
+    </p>
     <template #footer>
       <el-button @click="configOpen = false">取消</el-button>
       <el-button type="primary" @click="saveSlotConfig">确认</el-button>
@@ -129,7 +132,7 @@ const THEME_AI_STORAGE_KEY = 'aidirector_theme_ai_slots_v1'
 
 const slotDefs = [
   { key: 'historical_background', label: '背景' },
-  { key: 'description', label: '描述' },
+  { key: 'description', label: '人物设定' },
   { key: 'ai_submit', label: '提交' },
 ]
 
@@ -227,6 +230,38 @@ const fieldAiPayload = (field) => ({
   extra_hint: '',
 })
 
+const ensureThemeAiOptionsLoaded = async () => {
+  if (!llmOptions.value.length || !promptOptions.value.length) {
+    await fetchConfigOptions()
+  }
+}
+
+/** 与后端一致：必须选提示词模板；指定模型须存在且启用；否则须至少有一条已启用模型 */
+const assertThemeAiSlot = (slotKey) => {
+  const s = slotConfig[slotKey]
+  if (!s?.promptId) {
+    ElMessage.error('请先在主题「配置」中为该槽位选择提示词模板；未配置不会调用模型。')
+    return false
+  }
+  if (s.modelId != null) {
+    const row = llmOptions.value.find((m) => m.id === s.modelId)
+    if (!row) {
+      ElMessage.error('该槽位绑定的模型已不存在，请打开「配置」重新选择 LLM。')
+      return false
+    }
+    if (row.enabled === false) {
+      ElMessage.error('该槽位绑定的模型已禁用，请在 LLM 配置中启用或更换模型。')
+      return false
+    }
+    return true
+  }
+  if (!llmOptions.value.some((m) => m.enabled !== false)) {
+    ElMessage.error('请先在「LLM 配置」中启用至少一个模型，或在「配置」中为该槽位指定模型。')
+    return false
+  }
+  return true
+}
+
 const load = async () => {
   const { data } = await http.get('/themes')
   rows.value = data
@@ -273,46 +308,40 @@ const openEdit = (row) => {
 }
 
 const fillRandomBackground = async () => {
+  await ensureThemeAiOptionsLoaded()
+  if (!assertThemeAiSlot('historical_background')) return
   loadingRandomBg.value = true
   try {
-    try {
-      const { data } = await http.post('/themes/ai-field', fieldAiPayload('historical_background'))
-      if (data.value) {
-        form.historical_background = data.value
-        return
-      }
-    } catch (e) {
-      const msg = e.response?.data?.detail || ''
-      const { data } = await http.get('/themes/random-historical-background')
-      form.historical_background = data.value || ''
-      ElMessage.warning(typeof msg === 'string' && msg ? `AI 未可用：${msg}，已使用本地随机示例` : 'AI 生成失败，已使用本地随机示例')
-      return
+    const { data } = await http.post('/themes/ai-field', fieldAiPayload('historical_background'))
+    if (data.value) {
+      form.historical_background = data.value
+      ElMessage.success('已生成背景设定')
+    } else {
+      ElMessage.warning('模型返回为空')
     }
-    const { data } = await http.get('/themes/random-historical-background')
-    form.historical_background = data.value || ''
+  } catch (e) {
+    const msg = e.response?.data?.detail || e.message || '请求失败'
+    ElMessage.error(typeof msg === 'string' ? msg : 'AI 生成失败')
   } finally {
     loadingRandomBg.value = false
   }
 }
 
 const fillRandomDescription = async () => {
+  await ensureThemeAiOptionsLoaded()
+  if (!assertThemeAiSlot('description')) return
   loadingRandomDesc.value = true
   try {
-    try {
-      const { data } = await http.post('/themes/ai-field', fieldAiPayload('description'))
-      if (data.value) {
-        form.description = data.value
-        return
-      }
-    } catch (e) {
-      const msg = e.response?.data?.detail || ''
-      const { data } = await http.get('/themes/random-description')
-      form.description = data.value || ''
-      ElMessage.warning(typeof msg === 'string' && msg ? `AI 未可用：${msg}，已使用本地随机示例` : 'AI 生成失败，已使用本地随机示例')
-      return
+    const { data } = await http.post('/themes/ai-field', fieldAiPayload('description'))
+    if (data.value) {
+      form.description = data.value
+      ElMessage.success('已生成描述')
+    } else {
+      ElMessage.warning('模型返回为空')
     }
-    const { data } = await http.get('/themes/random-description')
-    form.description = data.value || ''
+  } catch (e) {
+    const msg = e.response?.data?.detail || e.message || '请求失败'
+    ElMessage.error(typeof msg === 'string' ? msg : 'AI 生成失败')
   } finally {
     loadingRandomDesc.value = false
   }
@@ -324,6 +353,8 @@ const submitAi = async () => {
     ElMessage.warning('请先输入 AI 辅助说明')
     return
   }
+  await ensureThemeAiOptionsLoaded()
+  if (!assertThemeAiSlot('ai_submit')) return
   loadingAi.value = true
   try {
     const { data } = await http.post('/themes/ai-assist', {
@@ -356,7 +387,7 @@ const save = async () => {
       description: form.description || '',
     }
     if (isEdit.value && editingId.value) {
-      await http.put(`/themes/${editingId.value}`, payload)
+      await http.post('/themes/update', { theme_id: editingId.value, ...payload })
     } else {
       await http.post('/themes', payload)
     }
@@ -378,7 +409,7 @@ const removeRow = async (row) => {
       confirmButtonText: '删除',
       cancelButtonText: '取消',
     })
-    await http.delete(`/themes/${row.id}`)
+    await http.post('/themes/delete', { theme_id: row.id })
     ElMessage.success('删除成功')
     await load()
   } catch {

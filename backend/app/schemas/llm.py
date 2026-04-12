@@ -29,6 +29,19 @@ class LLMModelEnabledUpdate(BaseModel):
     enabled: bool
 
 
+class LLMModelUpdateWithId(LLMModelUpdate):
+    model_id: int
+
+
+class LLMModelIdBody(BaseModel):
+    model_id: int
+
+
+class LLMModelSetEnabledBody(BaseModel):
+    model_id: int
+    enabled: bool
+
+
 class RemoteModelsRequest(BaseModel):
     base_url: str
     api_key: str = ''

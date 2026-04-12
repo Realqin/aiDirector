@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 class ThemeBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     historical_background: str = Field(default='', max_length=2000)
-    description: str = Field(default='', max_length=8000)
+    # 业务上展示为「人物设定」；JSON/API 键名仍为 description，与历史数据及下游兼容
+    description: str = Field(default='', max_length=8000, description='人物设定（字段名 description）')
 
 
 class ThemeCreate(ThemeBase):
@@ -15,6 +16,14 @@ class ThemeCreate(ThemeBase):
 
 class ThemeUpdate(ThemeBase):
     pass
+
+
+class ThemeUpdateWithId(ThemeUpdate):
+    theme_id: int
+
+
+class ThemeIdBody(BaseModel):
+    theme_id: int
 
 
 class ThemeRead(ThemeBase):

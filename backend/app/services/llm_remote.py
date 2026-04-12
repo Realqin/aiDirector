@@ -4,6 +4,8 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
+from app.core.config import settings
+
 
 def _normalize_base_url(base_url: str) -> str:
     return base_url.strip().rstrip('/')
@@ -69,14 +71,17 @@ def chat_completion_user(
     user_content: str,
     *,
     system_content: str | None = None,
-    timeout: int = 120,
-    max_tokens: int = 4096,
+    timeout: int | None = None,
+    max_tokens: int | None = None,
 ) -> tuple[str | None, str | None]:
     """OpenAI 兼容 POST /v1/chat/completions，返回助手文本或错误信息。"""
     if not model_name or not str(model_name).strip():
         return None, '模型标识为空'
     if not user_content or not str(user_content).strip():
         return None, '提示内容为空'
+    if timeout is None:
+        timeout = settings.llm_chat_timeout_seconds
+    mt = settings.llm_max_tokens if max_tokens is None else max_tokens
     url = chat_completions_url(base_url)
     messages: list[dict[str, str]] = []
     if system_content and str(system_content).strip():
@@ -85,7 +90,7 @@ def chat_completion_user(
     body = {
         'model': str(model_name).strip(),
         'messages': messages,
-        'max_tokens': max_tokens,
+        'max_tokens': mt,
         'temperature': 0.7,
     }
     try:
